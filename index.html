@@ -437,7 +437,7 @@ span[style*="color:rgba(255,193,7"]{color:var(--amber)!important}
 // ════════════════════════════════════
 //  CONFIG & STATE
 // ════════════════════════════════════
-const API_URL='https://script.google.com/macros/s/AKfycbycmviY2DIHo1GuYdNZefE2ohmvDqBmZ99uJVPSBoOOiApYiG3qLGTTKVaRjmxuCjs1/exec';
+const API_URL='https://script.google.com/macros/s/AKfycbwoXmejFW9O1AcoMZE3h61KN7A7IudSRLuRVd6Lzb2ieJpIXkw19I8QRYOQDFd4D4PK/exec';
 const GAS_OK=API_URL&&!API_URL.includes('YOUR_GAS');
 const PG=12;
 const DEPTS=['HR Implementation','Recruitment','Payroll Process','Others'];
@@ -967,6 +967,17 @@ async function submitPubCli(){
 async function doLogin(){
   const u=v('lgU'),p=v('lgP');
   if(!u||!p){showErr('lerr','Enter username and password');return}
+  // A prior forced logout (real expiry, or a revoked session) sets
+  // _sessionDead=true so gasCall() stops hammering the server with the
+  // dead token. But gasCall() short-circuits on THAT flag before even
+  // looking at which action is being called — including 'login' itself.
+  // Without this reset, the very next login attempt on the same page
+  // (no full refresh) would never reach the server at all: gasCall would
+  // immediately return {success:false, error:'Session expired'}, which
+  // then rendered here as a bogus "Session expired" LOGIN error even with
+  // fully correct credentials, effectively locking the user out until
+  // they manually reloaded the page.
+  _sessionDead=false;
   const btn=document.getElementById('lgBtn');
   btn.textContent='Signing in…';btn.disabled=true;showLoading('Authenticating…');
   // Try GAS login first
@@ -2407,7 +2418,7 @@ function uForm(id=''){
     <div class="ff s2"><label>Email</label><input id="uE" type="email" value="${esc(u.email||'')}"></div>
     <div class="ff"><label>Mobile</label><input id="uMob" value="${esc(u.mobile||'')}"></div>
     <div class="ff"><label>Date of Joining</label><input id="uDOJ" type="date" value="${esc(u.doj||'')}"></div>
-    <div class="ff s2"><label>${isE?'New Password (blank=no change)':'Password *'}</label><input id="uP" type="password" placeholder="min 6 chars"></div>
+    <div class="ff s2"><label>${isE?'New Password (blank=no change)':'Password *'}</label><input id="uP" type="password" placeholder="min 6 chars" autocomplete="new-password"></div>
   </div>
   <div class="fsec">Department / Service Access *</div>
   <div class="srv-chk" id="uDeptChk">${deptChk}</div>`,
@@ -2421,6 +2432,17 @@ async function saveU(id){
   if(!dp.length){toast('Select at least one Department / Service','e');return}
   if(!id&&!pw){toast('Password required','e');return}
   if(pw&&pw.length<6){toast('Min 6 chars','e');return}
+  if(id&&pw){
+    // A non-empty password on an EDIT (not add) immediately revokes every
+    // live session for this user the moment it's saved — including your
+    // own, if you're editing yourself and a password manager silently
+    // filled this field. Confirm it was intentional before sending it.
+    const isSelf=id===SES.user.id;
+    const warn=isSelf
+      ? 'This will change YOUR OWN password and log you out of this session immediately. Continue?'
+      : `This will reset ${nm||'this user'}'s password and log them out of all their active sessions immediately. Continue?`;
+    if(!confirm(warn))return;
+  }
   const extra={empId:v('uEmpId'),designation:v('uDesig'),mobile:v('uMob'),doj:v('uDOJ')};
   if(GAS_OK){
     showLoading('Saving user…');
